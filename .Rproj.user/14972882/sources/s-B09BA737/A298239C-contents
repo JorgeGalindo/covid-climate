@@ -1,0 +1,251 @@
+
+rm(list = ls())
+library(tidyverse)
+library(foreign)
+library(viridis)
+
+###CREATE BASIC DATAFRAMES
+
+MX_df <- read.csv("data/MXmunicipalclean.csv", colClasses = c(city_num="character"))
+
+MX_dens <- read.dbf("data/MX_connectivity.dbf") %>%
+  mutate(city_num=as.character(CVEMUN)) %>% 
+  select(NOM_MUN, city_num, DENSRED, RED.KM, AREAKM)
+
+
+MX_dens <- left_join(MX_dens,MX_df)  %>%
+  group_by(city_num) %>%
+  mutate(days_since_1case = row_number()) %>%
+  ungroup()
+
+MX_pop <- read.dbf("data/MX_density.dbf") %>%
+  mutate(city_num=as.character(CVMUN)) %>% 
+  select(city_num, DENS15, POBTOT15)
+
+MX_dens <- left_join(MX_dens,MX_pop)  
+
+MX_dens <- MX_dens %>% 
+  mutate(dens_facet=case_when(
+    DENS15>1999.999  ~ "1",
+    DENS15>999.999 & DENS15<1999.999 ~ "2",
+    DENS15>499.999 & DENS15<999.999 ~ "3",
+    DENS15>199.999 & DENS15<499.999 ~ "4",
+    DENS15>99.999 & DENS15<199.999 ~ "5",
+    DENS15>49.999 & DENS15<99.999 ~ "6",
+    DENS15>9.999 & DENS15<49.999 ~ "7",
+    DENS15<9.999  ~ "8"
+        )
+  ) %>%
+  mutate(
+    date_detect=as.Date(date_detect, format="%Y-%m-%d"))
+
+###CASE ANALYSIS
+
+##Tiles
+
+MX_dens_tile <- MX_dens %>%
+  mutate(todelete=case_when(
+    acum_cases<6 & date_detect=="2020-04-22" ~ city_num
+  )
+  ) 
+
+todelete_v <- MX_dens_tile$todelete
+todelete_v <- todelete_v[!is.na(todelete_v)]
+
+MX_dens_tile <- MX_dens_tile %>% 
+  mutate(todelete=case_when(
+    city_num %in% todelete_v ~ "Delete"
+          )
+         ) %>%
+  filter(is.na(todelete)) %>%
+  filter(date_detect>"2020-03-22")  %>%
+  mutate(acum_cases_color=case_when(
+    acum_cases==0  ~ 0.9,
+    acum_cases>0  ~ as.numeric(acum_cases)
+  )
+  )
+
+
+pal <- mypalette("neonvaldez", 100, type = "continuous")
+
+ggplot(data=MX_dens_tile, aes(x=date_detect, y=reorder(city_num,desc(-DENSRED)), fill= log10(acum_cases_color))) + 
+  geom_tile()+
+  labs(x="",y="")+
+  scale_fill_gradientn(colours = pal)+
+  scale_y_discrete(expand=c(0,0))+
+  scale_x_discrete(expand=c(0,0))+
+  theme(
+    axis.ticks = element_blank(),
+    legend.position="none",
+    panel.background = element_blank(),
+    axis.text = element_blank(),
+    legend.text=element_blank(),
+    plot.background=element_blank(),
+    panel.border=element_blank()
+    )
+
+##Scatters and Slopes
+
+#1st, data
+
+MX_dens_slope <- MX_dens   %>%
+  filter(acum_cases>0) %>%
+  group_by(city_num) %>%
+  mutate(days_since_1case = row_number()) %>%
+  ungroup() %>%
+  filter(days_since_1case == 1 | date_detect=="2020-04-22") %>%
+  mutate(theline=case_when(
+    date_detect == "2020-04-22" ~  "Today",
+    date_detect != "2020-04-22" ~ "firstcase"
+  )
+  )  %>%
+  pivot_wider(names_from = "theline", values_from = "acum_cases") %>%
+  mutate(today_case=lead(Today)) %>%
+  mutate(days_since_1case=lead(days_since_1case)) %>%
+  mutate(firstcase_num=firstcase) %>%
+  dplyr::select(-Today,-firstcase) %>%
+  filter(firstcase_num>=0) %>%
+  mutate(slope=(today_case-firstcase_num)/days_since_1case) %>%
+  filter(slope>0)
+
+#Now, graphs
+pal <- mypalette("siqueiros", 100, type = "continuous")
+
+density <- ggplot(data=MX_dens_slope, aes(x=DENS15, y=slope)) + 
+  geom_point(aes(size=POBTOT15, color=..x.., alpha=0.8)) + 
+  geom_smooth(aes(color=..x..), method=loess, se = FALSE, formula = y ~ x, size=1.5, alpha= 0.9) + 
+  scale_color_gradientn(colours=pal)+
+  scale_x_log10() +
+  scale_y_continuous(0,15, breaks = c(0,5,10,15),limits=c(0,15)) +
+  theme(panel.background = element_rect(fill="#ffffff"),
+        axis.ticks = element_blank(),
+        legend.position="none",
+        strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        plot.background = element_rect(fill="#ffffff"),
+        panel.grid.major = element_line(color = "#bbbbbb", size = 0.25, linetype = "dashed"),
+  )
+
+
+
+densnetwork <- ggplot(data=MX_dens_slope, aes(x=DENSRED, y=slope)) + 
+  geom_point(aes(size=POBTOT15, color=slope, alpha=0.8)) + 
+  geom_smooth(aes(color=..x..), method=loess, se = FALSE, formula = y ~ x, size=1.5, alpha= 0.9) + 
+  scale_color_gradientn(colours=pal)+
+  scale_y_continuous(0,15, breaks = c(0,5,10,15),limits=c(0,15)) +
+  scale_x_log10(breaks = c(0.001,0.01,0.1,1,10), limits = c(0.001,10)) +
+  theme(panel.background = element_rect(fill="#ffffff"),
+        axis.ticks = element_blank(),
+        legend.position="none",
+        strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        plot.background = element_rect(fill="#ffffff"),
+        panel.grid.major = element_line(color = "#bbbbbb", size = 0.25, linetype = "dashed"),
+  )
+
+
+ggsave(density,filename="density.png",height=5,width=5,units="in",dpi=200)
+ggsave(densnetwork,filename="densnetwork.png",height=5.5,width=8,units="in",dpi=200)
+
+
+###DEATH ANALYSIS -- honestly, not very insightful :(
+
+##Tiles
+
+MX_d_dens_tile <- MX_dens %>%
+  mutate(todelete=case_when(
+    acum_deaths<1 & date_detect=="2020-04-22" ~ city_num
+  )
+  ) 
+
+todelete_d_v <- MX_d_dens_tile$todelete
+todelete_d_v <- todelete_d_v[!is.na(todelete_d_v)]
+
+MX_d_dens_tile <- MX_d_dens_tile %>% 
+  mutate(todelete=case_when(
+    city_num %in% todelete_d_v ~ "Delete"
+  )
+  ) %>%
+  filter(is.na(todelete)) %>%
+  filter(date_detect>"2020-03-22")  %>%
+  mutate(acum_deaths_color=case_when(
+    acum_deaths==0  ~ 0.9,
+    acum_deaths>0  ~ as.numeric(acum_deaths)
+  )
+  )
+
+
+tile_d <- ggplot(data=MX_d_dens_tile, aes(x=date_detect, y=reorder(city_num,desc(-DENSRED)), fill= log10(acum_deaths_color))) + 
+  geom_tile()+
+  labs(x="",y="")+
+  scale_fill_viridis(discrete=FALSE, option="magma",direction=-1, begin = 0.1)+
+  scale_y_discrete(expand=c(0,0))+
+  scale_x_discrete(expand=c(0,0))+
+  theme(
+    axis.ticks = element_blank(),
+    legend.position="none",
+    panel.background = element_blank(),
+    axis.text = element_blank(),
+    legend.text=element_blank(),
+    plot.background=element_blank(),
+    panel.border=element_blank()
+  )
+
+##Scatters and Slopes
+
+#1st, data
+
+MX_d_dens_slope <- MX_dens   %>%
+  filter(acum_deaths>0) %>%
+  group_by(city_num) %>%
+  mutate(days_since_1death = row_number()) %>%
+  ungroup() %>%
+  filter(days_since_1death == 1 | date_detect=="2020-04-22") %>%
+  mutate(theline=case_when(
+    date_detect == "2020-04-22" ~  "Today",
+    date_detect != "2020-04-22" ~ "firstcase"
+  )
+  )  %>%
+  pivot_wider(names_from = "theline", values_from = "acum_deaths") %>%
+  mutate(today_death=lead(Today)) %>%
+  mutate(days_since_1death=lead(days_since_1death)) %>%
+  mutate(firstdeath_num=firstcase) %>%
+  dplyr::select(-Today,-firstcase) %>%
+  filter(firstdeath_num>=0) %>%
+  mutate(slope=(today_death-firstdeath_num)/days_since_1death) %>%
+  filter(slope>0)
+
+#Now, graphs
+
+ggplot(data=MX_d_dens_slope, aes(x=DENS15, y=slope)) + 
+  geom_point(aes(size=POBTOT15, color=slope, alpha=0.8)) + 
+  geom_smooth(aes(color=..y..), method=loess, se = FALSE, formula = y ~ x, size=1.5, alpha= 0.9) + 
+  scale_color_viridis(discrete = FALSE, option = "viridis", direction = -1, end = 0.95) +
+  scale_x_log10() +
+  scale_y_continuous() +
+  theme(panel.background = element_rect(fill="#ffffff"),
+        axis.ticks = element_blank(),
+        legend.position="none",
+        strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        plot.background = element_rect(fill="#ffffff"),
+        panel.grid.major.x = element_line(colour="#f0f0f0", size=.25),
+        panel.grid.major.y = element_line(colour="#f0f0f0", size=.25),
+  )
+
+
+ggplot(data=MX_d_dens_slope, aes(x=DENSRED, y=slope)) + 
+  geom_point(aes(size=POBTOT15, color=slope, alpha=0.8)) + 
+  geom_smooth(aes(color=..y..), method=loess, se = FALSE, formula = y ~ x, size=1.5, alpha= 0.9) + 
+  scale_color_viridis(discrete = FALSE, option = "viridis", direction = -1, end = 0.95) +
+  scale_x_log10() +
+  scale_y_continuous() +
+  theme(panel.background = element_rect(fill="#ffffff"),
+        axis.ticks = element_blank(),
+        legend.position="none",
+        strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        plot.background = element_rect(fill="#ffffff"),
+        panel.grid.major.x = element_line(colour="#f0f0f0", size=.25),
+        panel.grid.major.y = element_line(colour="#f0f0f0", size=.25),
+  )

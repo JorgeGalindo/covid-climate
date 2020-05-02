@@ -1,0 +1,51 @@
+mypalettes <- list(
+  agnolotti = c("#db6f61", "#ff7361","#ffba61","#adff61","#8bff61","#79db56","#adc049"),
+  neonvaldez = c("#DAFF00","#6B6F4D","#96A357","#846F9F","#EC587E","#EC587E","#FF659A","#B04043","#6C3633","#6C3633"),
+  viena = c("#2E322F","#819292","#66A99B","#6BA6D3","#D7D8CE"),
+  bluehour = c("#3195CB","#6ED3FF","#AFDDF4","#75B6D1","#753C13","#D3A546","#DEA931","#F2DD3F"),
+  polarized = c("#6CA8A4","#C8DDD3","#C1A8A6","#6B7F81","#57504C"),
+  guayabero = c("#9E9E91","#EBBF9E","#F2A371","#F08235","#4A2E24"),
+  eldorado = c("#394D48","#5B6F60","#C5CDB6","#C8BB98","#C65C4B","#A63426","#7B2310"),
+  eldorado_disc = c("#394D48","#C5CDB6","#C65C4B","#7B2310"),
+  bogota = c("#695452","#DB856C","#E8AB92","#F8D283","#8CA34F","#618276","#B8D5C3"),
+  chapinero = c("#070B09","#893031","#EB0800","#FDD419","#C5BDBC","#BFBCBC","#BAE4F1","#D8DAEE","#7DB3C5","#032C64"),
+  siqueiros = c("#652A04","#8E3E0D","#8E5839","#D78013","#C99722","#E1AF2B","#F5B017","#6C8798","#4B6566","#596186"),
+  siqueiros_disc = c("#652A04","#D78013","#F5B017","#4B6566"),
+  parrilla = c("#9A552E","#B3866F","#D38966","#AD3D16","#EABC80","#DDDEE0","#929898","#2C384E"),
+  discretica = c("#753C13","#F5B017","#3195CB","#21535B"),
+  arcenciel = c("#21535B","#02AE98","#649D40","#BFA648","#D9A248","#D04E3B","#A0526A","#542262"),
+  fleur=c("#78C5E0","#DEC430","#E2973C","#D13F44","#D13F44","#784F94","#312C4D")
+  )
+mypalette <- function(name, n, type = c("discrete", "continuous")) {
+  type <- match.arg(type)
+  
+  pal <- mypalettes[[name]]
+  if (is.null(pal))
+    stop("De que me hablas nano")
+  
+  if (missing(n)) {
+    n <- length(pal)
+  }
+  
+  if (type == "discrete" && n > length(pal)) {
+    stop("No hay tanto color nen")
+  }
+  
+  out <- switch(type,
+                continuous = grDevices::colorRampPalette(pal)(n),
+                discrete = pal[1:n]
+  )
+  structure(out, class = "palette", name = name)
+}
+
+print.palette <- function(x, ...) {
+  n <- length(x)
+  old <- par(mar = c(0.5, 0.5, 0.5, 0.5))
+  on.exit(par(old))
+  
+  image(1:n, 1, as.matrix(1:n), col = x,
+        ylab = "", xaxt = "n", yaxt = "n", bty = "n")
+  
+  rect(0, 0.9, n + 1, 1.1, col = rgb(1, 1, 1, 0.8), border = NA)
+  text((n + 1) / 2, 1, labels = attr(x, "name"), cex = 1, family = "serif")
+}
